@@ -1,16 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * wpanusb.c - Driver for the WPANUSB IEEE 802.15.4 dongle
+ * Driver for the WPANUSB IEEE 802.15.4 dongle
  *
  * Copyright (C) 2018 Intel Corp.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2
- * as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * The driver implements SoftMAC 802.15.4 protocol based on atusb
  * driver for ATUSB IEEE 802.15.4 dongle.
@@ -20,28 +12,22 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/jiffies.h>
-#include <linux/usb.h>
 #include <linux/skbuff.h>
+#include <linux/usb.h>
 
 #include <net/cfg802154.h>
 #include <net/mac802154.h>
 
 #include "wpanusb.h"
 
-#define VERBOSE_DEBUG
-
 #define WPANUSB_NUM_RX_URBS	4	/* allow for a bit of local latency */
 #define WPANUSB_ALLOC_DELAY_MS	100	/* delay after failed allocation */
 
 #define VENDOR_OUT		(USB_TYPE_VENDOR | USB_DIR_OUT)
-#define VENDOR_IN		(USB_TYPE_VENDOR | USB_DIR_IN)
-
-/* TODO: kernel doc format */
 
 struct wpanusb {
 	struct ieee802154_hw *hw;
-	struct usb_device *usb_dev;
+	struct usb_device *udev;
 	int shutdown;			/* non-zero if shutting down */
 
 	/* RX variables */
@@ -53,26 +39,18 @@ struct wpanusb {
 	struct usb_ctrlrequest tx_dr;
 	struct urb *tx_urb;
 	struct sk_buff *tx_skb;
-	uint8_t tx_ack_seq;		/* current TX ACK sequence number */
+	u8 tx_ack_seq;			/* current TX ACK sequence number */
 };
 
-/* ----- USB commands without data ----------------------------------------- */
+/* USB commands without data */
 
 static int wpanusb_control_send(struct wpanusb *wpanusb, unsigned int pipe,
-				__u8 request, __u8 requesttype,
-				void *data, __u16 size, int timeout)
+				u8 request, void *data, u16 size)
 {
-	struct usb_device *usb_dev = wpanusb->usb_dev;
-	int ret;
+	struct usb_device *udev = wpanusb->udev;
 
-	ret = usb_control_msg(usb_dev, pipe, request, requesttype,
-			      0, 0, data, size, timeout);
-	if (ret < 0) {
-		dev_err(&usb_dev->dev, "%s: failed: req 0x%02x error %d\n",
-			__func__, request, ret);
-	}
-
-	return ret;
+	return usb_control_msg(udev, pipe, request, VENDOR_OUT,
+			       0, 0, data, size, 1000);
 }
 
 /* ----- skb allocation ---------------------------------------------------- */
@@ -86,14 +64,14 @@ static void wpanusb_bulk_complete(struct urb *urb);
 
 static int wpanusb_submit_rx_urb(struct wpanusb *wpanusb, struct urb *urb)
 {
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	struct sk_buff *skb = urb->context;
 	int ret;
 
 	if (!skb) {
 		skb = alloc_skb(MAX_RX_XFER, GFP_KERNEL);
 		if (!skb) {
-			dev_warn_ratelimited(&usb_dev->dev,
+			dev_warn_ratelimited(&udev->dev,
 					     "can't allocate skb\n");
 			return -ENOMEM;
 		}
@@ -101,7 +79,7 @@ static int wpanusb_submit_rx_urb(struct wpanusb *wpanusb, struct urb *urb)
 		SKB_WPANUSB(skb) = wpanusb;
 	}
 
-	usb_fill_bulk_urb(urb, usb_dev, usb_rcvbulkpipe(usb_dev, 1),
+	usb_fill_bulk_urb(urb, udev, usb_rcvbulkpipe(udev, 1),
 			  skb->data, MAX_RX_XFER, wpanusb_bulk_complete, skb);
 	usb_anchor_urb(urb, &wpanusb->rx_urbs);
 
@@ -119,7 +97,7 @@ static void wpanusb_work_urbs(struct work_struct *work)
 {
 	struct wpanusb *wpanusb =
 		container_of(to_delayed_work(work), struct wpanusb, work);
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	struct urb *urb;
 	int ret;
 
@@ -134,7 +112,7 @@ static void wpanusb_work_urbs(struct work_struct *work)
 	} while (!ret);
 
 	usb_anchor_urb(urb, &wpanusb->idle_urbs);
-	dev_warn_ratelimited(&usb_dev->dev, "can't allocate/submit URB (%d)\n",
+	dev_warn_ratelimited(&udev->dev, "can't allocate/submit URB (%d)\n",
 			     ret);
 	schedule_delayed_work(&wpanusb->work,
 			      msecs_to_jiffies(WPANUSB_ALLOC_DELAY_MS) + 1);
@@ -144,10 +122,10 @@ static void wpanusb_work_urbs(struct work_struct *work)
 
 static void wpanusb_tx_done(struct wpanusb *wpanusb, uint8_t seq)
 {
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	uint8_t expect = wpanusb->tx_ack_seq;
 
-	dev_dbg(&usb_dev->dev, "seq 0x%02x expect 0x%02x\n", seq, expect);
+	dev_dbg(&udev->dev, "seq 0x%02x expect 0x%02x\n", seq, expect);
 
 	if (seq == expect) {
 		/* TODO check for ifs handling in firmware */
@@ -158,7 +136,7 @@ static void wpanusb_tx_done(struct wpanusb *wpanusb, uint8_t seq)
 		 * unlikely case now that seq == expect is then true, but can
 		 * happen and fail with a tx_skb = NULL;
 		 */
-		dev_dbg(&usb_dev->dev, "unknown ack %u\n", seq);
+		dev_dbg(&udev->dev, "unknown ack %u\n", seq);
 
 		ieee802154_wake_queue(wpanusb->hw);
 		if (wpanusb->tx_skb)
@@ -168,19 +146,19 @@ static void wpanusb_tx_done(struct wpanusb *wpanusb, uint8_t seq)
 
 static void wpanusb_process_urb(struct urb *urb)
 {
-	struct usb_device *usb_dev = urb->dev;
+	struct usb_device *udev = urb->dev;
 	struct sk_buff *skb = urb->context;
 	struct wpanusb *wpanusb = SKB_WPANUSB(skb);
 	uint8_t len, lqi;
 
 	if (!urb->actual_length) {
-		dev_dbg(&usb_dev->dev, "zero-sized URB ?\n");
+		dev_dbg(&udev->dev, "zero-sized URB ?\n");
 		return;
 	}
 
 	len = *skb->data;
 
-	dev_dbg(&usb_dev->dev, "urb %p urb len %u pkt len %u", urb,
+	dev_dbg(&udev->dev, "urb %p urb len %u pkt len %u", urb,
 		urb->actual_length, len);
 
 	/* Handle ACK */
@@ -190,13 +168,13 @@ static void wpanusb_process_urb(struct urb *urb)
 	}
 
 	if (len + 1 > urb->actual_length - 1) {
-		dev_dbg(&usb_dev->dev, "frame len %d+1 > URB %u-1\n",
+		dev_dbg(&udev->dev, "frame len %d+1 > URB %u-1\n",
 			len, urb->actual_length);
 		return;
 	}
 
 	if (!ieee802154_is_valid_psdu_len(len)) {
-		dev_dbg(&usb_dev->dev, "frame corrupted\n");
+		dev_dbg(&udev->dev, "frame corrupted\n");
 		return;
 	}
 
@@ -205,7 +183,7 @@ static void wpanusb_process_urb(struct urb *urb)
 
 	/* Get LQI at the end of the packet */
 	lqi = skb->data[len + 1];
-	dev_dbg(&usb_dev->dev, "rx len %d lqi 0x%02x\n", len, lqi);
+	dev_dbg(&udev->dev, "rx len %d lqi 0x%02x\n", len, lqi);
 	skb_pull(skb, 1);	/* remove length */
 	skb_trim(skb, len);	/* remove LQI */
 	ieee802154_rx_irqsafe(wpanusb->hw, skb, lqi);
@@ -214,11 +192,11 @@ static void wpanusb_process_urb(struct urb *urb)
 
 static void wpanusb_bulk_complete(struct urb *urb)
 {
-	struct usb_device *usb_dev = urb->dev;
+	struct usb_device *udev = urb->dev;
 	struct sk_buff *skb = urb->context;
 	struct wpanusb *wpanusb = SKB_WPANUSB(skb);
 
-	dev_dbg(&usb_dev->dev, "status %d len %d\n",
+	dev_dbg(&udev->dev, "status %d len %d\n",
 		urb->status, urb->actual_length);
 
 	if (urb->status) {
@@ -227,7 +205,7 @@ static void wpanusb_bulk_complete(struct urb *urb)
 			urb->context = NULL;
 			return;
 		}
-		dev_dbg(&usb_dev->dev, "URB error %d\n", urb->status);
+		dev_dbg(&udev->dev, "URB error %d\n", urb->status);
 	} else {
 		wpanusb_process_urb(urb);
 	}
@@ -278,10 +256,10 @@ static void wpanusb_xmit_complete(struct urb *urb)
 static int wpanusb_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	int ret;
 
-	dev_dbg(&usb_dev->dev, "len %u", skb->len);
+	dev_dbg(&udev->dev, "len %u", skb->len);
 
 	/* ack_seq range is 0 - 0xff */
 	wpanusb->tx_ack_seq++;
@@ -292,13 +270,13 @@ static int wpanusb_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 	wpanusb->tx_dr.wIndex = cpu_to_le16(wpanusb->tx_ack_seq);
 	wpanusb->tx_dr.wLength = cpu_to_le16(skb->len);
 
-	usb_fill_control_urb(wpanusb->tx_urb, usb_dev,
-			     usb_sndctrlpipe(usb_dev, 0),
+	usb_fill_control_urb(wpanusb->tx_urb, udev,
+			     usb_sndctrlpipe(udev, 0),
 			     (unsigned char *)&wpanusb->tx_dr, skb->data,
 			     skb->len, wpanusb_xmit_complete, NULL);
 	ret = usb_submit_urb(wpanusb->tx_urb, GFP_ATOMIC);
 
-	dev_dbg(&usb_dev->dev, "wpanusb_xmit ret %d len %u seq %u\n", ret,
+	dev_dbg(&udev->dev, "wpanusb_xmit ret %d len %u seq %u\n", ret,
 		skb->len, wpanusb->tx_ack_seq);
 
 	return ret;
@@ -307,7 +285,7 @@ static int wpanusb_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 static int wpanusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	struct set_channel *req;
 	int ret;
 
@@ -318,13 +296,12 @@ static int wpanusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 	req->page = page;
 	req->channel = channel;
 
-	dev_dbg(&usb_dev->dev, "page %u channel %u", page, channel);
+	dev_dbg(&udev->dev, "page %u channel %u", page, channel);
 
-	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0),
-				   SET_CHANNEL, VENDOR_OUT, req, sizeof(*req),
-				   1000);
+	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
+				   SET_CHANNEL, req, sizeof(*req));
 	if (ret < 0) {
-		dev_err(&usb_dev->dev, "%s: Failed set channel, ret %d",
+		dev_err(&udev->dev, "%s: Failed set channel, ret %d",
 			__func__, ret);
 
 		kfree(req);
@@ -351,7 +328,7 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 				    unsigned long changed)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	int ret = 0;
 
 	if (changed & IEEE802154_AFILT_SADDR_CHANGED) {
@@ -361,16 +338,15 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 		if (!req)
 			return -ENOMEM;
 
-		dev_dbg(&usb_dev->dev, "short addr changed to 0x%04x",
+		dev_dbg(&udev->dev, "short addr changed to 0x%04x",
 			le16_to_cpu(filt->short_addr));
 
 		req->short_addr = filt->short_addr;
 
-		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0),
-					   SET_SHORT_ADDR, VENDOR_OUT, req,
-					   sizeof(*req), 1000);
+		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
+					   SET_SHORT_ADDR, req, sizeof(*req));
 		if (ret < 0) {
-			dev_err(&usb_dev->dev, "%s: Failed to set short_addr",
+			dev_err(&udev->dev, "%s: Failed to set short_addr",
 				__func__);
 
 			kfree(req);
@@ -387,16 +363,15 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 		if (!req)
 			return -ENOMEM;
 
-		dev_dbg(&usb_dev->dev, "pan id changed to 0x%04x",
+		dev_dbg(&udev->dev, "pan id changed to 0x%04x",
 			le16_to_cpu(filt->pan_id));
 
 		req->pan_id = filt->pan_id;
 
-		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0),
-					   SET_PAN_ID, VENDOR_OUT, req,
-					   sizeof(*req), 1000);
+		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
+					   SET_PAN_ID, req, sizeof(*req));
 		if (ret < 0) {
-			dev_err(&usb_dev->dev, "%s: Failed to set pan_id",
+			dev_err(&udev->dev, "%s: Failed to set pan_id",
 				__func__);
 
 			kfree(req);
@@ -413,16 +388,15 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 		if (!req)
 			return -ENOMEM;
 
-		dev_dbg(&usb_dev->dev, "IEEE addr changed");
+		dev_dbg(&udev->dev, "IEEE addr changed");
 
 		memcpy(&req->ieee_addr, &filt->ieee_addr,
 		       sizeof(req->ieee_addr));
 
-		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0),
-					   SET_IEEE_ADDR, VENDOR_OUT, req,
-					   sizeof(*req), 1000);
+		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
+					   SET_IEEE_ADDR, req, sizeof(*req));
 		if (ret < 0) {
-			dev_err(&usb_dev->dev, "%s: Failed to set ieee_addr",
+			dev_err(&udev->dev, "%s: Failed to set ieee_addr",
 				__func__);
 
 			kfree(req);
@@ -433,9 +407,9 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 	}
 
 	if (changed & IEEE802154_AFILT_PANC_CHANGED) {
-		dev_vdbg(&usb_dev->dev, "panc changed");
+		dev_dbg(&udev->dev, "panc changed");
 
-		dev_err(&usb_dev->dev, "%s: Not handled", __func__);
+		dev_err(&udev->dev, "%s: Not handled", __func__);
 	}
 
 	return ret;
@@ -444,15 +418,17 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 static int wpanusb_start(struct ieee802154_hw *hw)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 	int ret;
 
 	schedule_delayed_work(&wpanusb->work, 0);
 
-	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0),
-				   START, VENDOR_OUT, NULL, 0, 1000);
-	if (ret < 0)
+	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
+				   START, NULL, 0);
+	if (ret < 0) {
+		dev_err(&udev->dev, "Failed to start ieee802154");
 		usb_kill_anchored_urbs(&wpanusb->idle_urbs);
+	}
 
 	return ret;
 }
@@ -460,14 +436,17 @@ static int wpanusb_start(struct ieee802154_hw *hw)
 static void wpanusb_stop(struct ieee802154_hw *hw)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
+	int ret;
 
-	dev_dbg(&usb_dev->dev, "stop");
+	dev_dbg(&udev->dev, "stop");
 
 	usb_kill_anchored_urbs(&wpanusb->idle_urbs);
 
-	wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0),
-			     STOP, VENDOR_OUT, NULL, 0, 1000);
+	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
+				   STOP, NULL, 0);
+	if (ret < 0)
+		dev_err(&udev->dev, "Failed to stop ieee802154");
 }
 
 #define WPANUSB_MAX_TX_POWERS 0xF
@@ -479,9 +458,9 @@ static const s32 wpanusb_powers[WPANUSB_MAX_TX_POWERS + 1] = {
 static int wpanusb_set_txpower(struct ieee802154_hw *hw, s32 mbm)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 
-	dev_err(&usb_dev->dev, "%s: Not handled, mbm %d", __func__, mbm);
+	dev_err(&udev->dev, "%s: Not handled, mbm %d", __func__, mbm);
 
 	/* TODO: */
 
@@ -492,9 +471,9 @@ static int wpanusb_set_cca_mode(struct ieee802154_hw *hw,
 				const struct wpan_phy_cca *cca)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 
-	dev_err(&usb_dev->dev, "%s: Not handled, mode %u opt %u",
+	dev_err(&udev->dev, "%s: Not handled, mode %u opt %u",
 		__func__, cca->mode, cca->opt);
 
 	switch (cca->mode) {
@@ -514,9 +493,9 @@ static int wpanusb_set_cca_mode(struct ieee802154_hw *hw,
 static int wpanusb_set_cca_ed_level(struct ieee802154_hw *hw, s32 mbm)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 
-	dev_err(&usb_dev->dev, "%s: Not handled, mbm %d", __func__, mbm);
+	dev_err(&udev->dev, "%s: Not handled, mbm %d", __func__, mbm);
 
 	return 0;
 }
@@ -525,9 +504,9 @@ static int wpanusb_set_csma_params(struct ieee802154_hw *hw, u8 min_be,
 				   u8 max_be, u8 retries)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 
-	dev_err(&usb_dev->dev, "%s: Not handled, min_be %u max_be %u retr %u",
+	dev_err(&udev->dev, "%s: Not handled, min_be %u max_be %u retr %u",
 		__func__, min_be, max_be, retries);
 
 	return 0;
@@ -536,9 +515,9 @@ static int wpanusb_set_csma_params(struct ieee802154_hw *hw, u8 min_be,
 static int wpanusb_set_promiscuous_mode(struct ieee802154_hw *hw, const bool on)
 {
 	struct wpanusb *wpanusb = hw->priv;
-	struct usb_device *usb_dev = wpanusb->usb_dev;
+	struct usb_device *udev = wpanusb->udev;
 
-	dev_err(&usb_dev->dev, "%s: Not handled, on %d", __func__, on);
+	dev_err(&udev->dev, "%s: Not handled, on %d", __func__, on);
 
 	return 0;
 }
@@ -563,7 +542,7 @@ static const struct ieee802154_ops wpanusb_ops = {
 static int wpanusb_probe(struct usb_interface *interface,
 			 const struct usb_device_id *id)
 {
-	struct usb_device *usb_dev = interface_to_usbdev(interface);
+	struct usb_device *udev = interface_to_usbdev(interface);
 	struct ieee802154_hw *hw;
 	struct wpanusb *wpanusb;
 	int ret;
@@ -574,7 +553,7 @@ static int wpanusb_probe(struct usb_interface *interface,
 
 	wpanusb = hw->priv;
 	wpanusb->hw = hw;
-	wpanusb->usb_dev = usb_get_dev(usb_dev);
+	wpanusb->udev = usb_get_dev(udev);
 	usb_set_intfdata(interface, wpanusb);
 
 	wpanusb->shutdown = 0;
@@ -594,7 +573,7 @@ static int wpanusb_probe(struct usb_interface *interface,
 	if (!wpanusb->tx_urb)
 		goto fail;
 
-	hw->parent = &usb_dev->dev;
+	hw->parent = &udev->dev;
 	hw->flags = IEEE802154_HW_TX_OMIT_CKSUM | IEEE802154_HW_AFILT |
 		    IEEE802154_HW_PROMISCUOUS;
 
@@ -610,13 +589,18 @@ static int wpanusb_probe(struct usb_interface *interface,
 
 	ieee802154_random_extended_addr(&hw->phy->perm_extended_addr);
 
-	/* TODO: Do some initialization if needed */
-	wpanusb_control_send(wpanusb, usb_sndctrlpipe(usb_dev, 0), RESET,
-			     VENDOR_OUT, NULL, 0, 1000);
+	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0), RESET,
+				   NULL, 0);
+	if (ret < 0) {
+		dev_err(&udev->dev, "Failed to RESET ieee802154");
+		goto fail;
+	}
 
 	ret = ieee802154_register_hw(hw);
-	if (ret)
+	if (ret) {
+		dev_err(&udev->dev, "Failed to register ieee802154");
 		goto fail;
+	}
 
 	return 0;
 
@@ -624,7 +608,7 @@ fail:
 	wpanusb_free_urbs(wpanusb);
 	usb_kill_urb(wpanusb->tx_urb);
 	usb_free_urb(wpanusb->tx_urb);
-	usb_put_dev(usb_dev);
+	usb_put_dev(udev);
 	ieee802154_free_hw(hw);
 
 	return ret;
@@ -647,7 +631,7 @@ static void wpanusb_disconnect(struct usb_interface *interface)
 	ieee802154_free_hw(wpanusb->hw);
 
 	usb_set_intfdata(interface, NULL);
-	usb_put_dev(wpanusb->usb_dev);
+	usb_put_dev(wpanusb->udev);
 }
 
 /* The devices we work with */
