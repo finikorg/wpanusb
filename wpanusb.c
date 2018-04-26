@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Driver for the WPANUSB IEEE 802.15.4 dongle
  *
@@ -24,6 +24,8 @@
 #define WPANUSB_ALLOC_DELAY_MS	100	/* delay after failed allocation */
 
 #define VENDOR_OUT		(USB_TYPE_VENDOR | USB_DIR_OUT)
+
+#define WPANUSB_VALID_CHANNELS	(0x07FFF800)
 
 struct wpanusb {
 	struct ieee802154_hw *hw;
@@ -449,8 +451,7 @@ static void wpanusb_stop(struct ieee802154_hw *hw)
 		dev_err(&udev->dev, "Failed to stop ieee802154");
 }
 
-#define WPANUSB_MAX_TX_POWERS 0xF
-static const s32 wpanusb_powers[WPANUSB_MAX_TX_POWERS + 1] = {
+static const s32 wpanusb_powers[] = {
 	300, 280, 230, 180, 130, 70, 0, -100, -200, -300, -400, -500, -700,
 	-900, -1200, -1700,
 };
@@ -579,9 +580,10 @@ static int wpanusb_probe(struct usb_interface *interface,
 
 	hw->phy->flags = WPAN_PHY_FLAG_TXPOWER;
 
+	/* Set default and supported channels */
 	hw->phy->current_page = 0;
 	hw->phy->current_channel = 11;
-	hw->phy->supported.channels[0] = 0x7FFF800;
+	hw->phy->supported.channels[0] = WPANUSB_VALID_CHANNELS;
 
 	hw->phy->supported.tx_powers = wpanusb_powers;
 	hw->phy->supported.tx_powers_size = ARRAY_SIZE(wpanusb_powers);
@@ -637,11 +639,10 @@ static void wpanusb_disconnect(struct usb_interface *interface)
 /* The devices we work with */
 static const struct usb_device_id wpanusb_device_table[] = {
 	{
-		.match_flags		= USB_DEVICE_ID_MATCH_DEVICE |
-					  USB_DEVICE_ID_MATCH_INT_INFO,
-		.idVendor		= WPANUSB_VENDOR_ID,
-		.idProduct		= WPANUSB_PRODUCT_ID,
-		.bInterfaceClass	= USB_CLASS_VENDOR_SPEC
+		USB_DEVICE_AND_INTERFACE_INFO(WPANUSB_VENDOR_ID,
+					      WPANUSB_PRODUCT_ID,
+					      USB_CLASS_VENDOR_SPEC,
+					      0, 0)
 	},
 	/* end with null element */
 	{}
