@@ -298,19 +298,15 @@ static int wpanusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 	req->page = page;
 	req->channel = channel;
 
-	dev_dbg(&udev->dev, "page %u channel %u", page, channel);
-
 	ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
 				   SET_CHANNEL, req, sizeof(*req));
+	kfree(req);
 	if (ret < 0) {
-		dev_err(&udev->dev, "%s: Failed set channel, ret %d",
-			__func__, ret);
-
-		kfree(req);
+		dev_err(&udev->dev, "Failed set channel, ret %d", ret);
 		return ret;
 	}
 
-	kfree(req);
+	dev_dbg(&udev->dev, "set page %u channel %u", page, channel);
 
 	return 0;
 }
@@ -340,22 +336,19 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 		if (!req)
 			return -ENOMEM;
 
-		dev_dbg(&udev->dev, "short addr changed to 0x%04x",
-			le16_to_cpu(filt->short_addr));
-
 		req->short_addr = filt->short_addr;
 
 		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
 					   SET_SHORT_ADDR, req, sizeof(*req));
+		kfree(req);
 		if (ret < 0) {
-			dev_err(&udev->dev, "%s: Failed to set short_addr",
-				__func__);
-
-			kfree(req);
+			dev_err(&udev->dev, "Failed to set short_addr, ret %d",
+				ret);
 			return ret;
 		}
 
-		kfree(req);
+		dev_dbg(&udev->dev, "short addr changed to 0x%04x",
+			le16_to_cpu(filt->short_addr));
 	}
 
 	if (changed & IEEE802154_AFILT_PANID_CHANGED) {
@@ -365,22 +358,19 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 		if (!req)
 			return -ENOMEM;
 
-		dev_dbg(&udev->dev, "pan id changed to 0x%04x",
-			le16_to_cpu(filt->pan_id));
-
 		req->pan_id = filt->pan_id;
 
 		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
 					   SET_PAN_ID, req, sizeof(*req));
+		kfree(req);
 		if (ret < 0) {
-			dev_err(&udev->dev, "%s: Failed to set pan_id",
-				__func__);
-
-			kfree(req);
+			dev_err(&udev->dev, "Failed to set pan_id, ret %d",
+				ret);
 			return ret;
 		}
 
-		kfree(req);
+		dev_dbg(&udev->dev, "pan id changed to 0x%04x",
+			le16_to_cpu(filt->pan_id));
 	}
 
 	if (changed & IEEE802154_AFILT_IEEEADDR_CHANGED) {
@@ -390,28 +380,25 @@ static int wpanusb_set_hw_addr_filt(struct ieee802154_hw *hw,
 		if (!req)
 			return -ENOMEM;
 
-		dev_dbg(&udev->dev, "IEEE addr changed");
-
 		memcpy(&req->ieee_addr, &filt->ieee_addr,
 		       sizeof(req->ieee_addr));
 
 		ret = wpanusb_control_send(wpanusb, usb_sndctrlpipe(udev, 0),
 					   SET_IEEE_ADDR, req, sizeof(*req));
+		kfree(req);
 		if (ret < 0) {
-			dev_err(&udev->dev, "%s: Failed to set ieee_addr",
-				__func__);
-
-			kfree(req);
+			dev_err(&udev->dev, "Failed to set ieee_addr, ret %d",
+				ret);
 			return ret;
 		}
 
-		kfree(req);
+		dev_dbg(&udev->dev, "IEEE addr changed");
 	}
 
 	if (changed & IEEE802154_AFILT_PANC_CHANGED) {
 		dev_dbg(&udev->dev, "panc changed");
 
-		dev_err(&udev->dev, "%s: Not handled", __func__);
+		dev_err(&udev->dev, "Not handled AFILT_PANC_CHANGED");
 	}
 
 	return ret;
