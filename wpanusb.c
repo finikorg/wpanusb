@@ -44,7 +44,7 @@ struct wpanusb {
 	u8 tx_ack_seq;			/* current TX ACK sequence number */
 };
 
-/* USB commands without data */
+/* ----- USB commands without data ----------------------------------------- */
 
 static int wpanusb_control_send(struct wpanusb *wpanusb, unsigned int pipe,
 				u8 request, void *data, u16 size)
@@ -110,6 +110,7 @@ static void wpanusb_work_urbs(struct work_struct *work)
 		urb = usb_get_from_anchor(&wpanusb->idle_urbs);
 		if (!urb)
 			return;
+
 		ret = wpanusb_submit_rx_urb(wpanusb, urb);
 	} while (!ret);
 
@@ -125,19 +126,13 @@ static void wpanusb_work_urbs(struct work_struct *work)
 static void wpanusb_tx_done(struct wpanusb *wpanusb, uint8_t seq)
 {
 	struct usb_device *udev = wpanusb->udev;
-	uint8_t expect = wpanusb->tx_ack_seq;
+	u8 expect = wpanusb->tx_ack_seq;
 
 	dev_dbg(&udev->dev, "seq 0x%02x expect 0x%02x\n", seq, expect);
 
 	if (seq == expect) {
-		/* TODO check for ifs handling in firmware */
 		ieee802154_xmit_complete(wpanusb->hw, wpanusb->tx_skb, false);
 	} else {
-		/* TODO I experience this case when wpanusb has a tx complete
-		 * irq before probing, we should fix the firmware it's an
-		 * unlikely case now that seq == expect is then true, but can
-		 * happen and fail with a tx_skb = NULL;
-		 */
 		dev_dbg(&udev->dev, "unknown ack %u\n", seq);
 
 		ieee802154_wake_queue(wpanusb->hw);
@@ -151,7 +146,7 @@ static void wpanusb_process_urb(struct urb *urb)
 	struct usb_device *udev = urb->dev;
 	struct sk_buff *skb = urb->context;
 	struct wpanusb *wpanusb = SKB_WPANUSB(skb);
-	uint8_t len, lqi;
+	u8 len, lqi;
 
 	if (!urb->actual_length) {
 		dev_dbg(&udev->dev, "zero-sized URB ?\n");
@@ -207,6 +202,7 @@ static void wpanusb_bulk_complete(struct urb *urb)
 			urb->context = NULL;
 			return;
 		}
+
 		dev_dbg(&udev->dev, "URB error %d\n", urb->status);
 	} else {
 		wpanusb_process_urb(urb);
@@ -263,7 +259,7 @@ static int wpanusb_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 
 	dev_dbg(&udev->dev, "len %u", skb->len);
 
-	/* ack_seq range is 0 - 0xff */
+	/* ack_seq range is 0x01 - 0xff */
 	wpanusb->tx_ack_seq++;
 	if (!wpanusb->tx_ack_seq)
 		wpanusb->tx_ack_seq++;
@@ -313,9 +309,8 @@ static int wpanusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 
 static int wpanusb_ed(struct ieee802154_hw *hw, u8 *level)
 {
-	BUG_ON(!level);
+	WARN_ON(!level);
 
-	/* TODO: verify value */
 	*level = 0xbe;
 
 	return 0;
@@ -450,9 +445,7 @@ static int wpanusb_set_txpower(struct ieee802154_hw *hw, s32 mbm)
 
 	dev_err(&udev->dev, "%s: Not handled, mbm %d", __func__, mbm);
 
-	/* TODO: */
-
-	return 0;
+	return -ENOTSUPP;
 }
 
 static int wpanusb_set_cca_mode(struct ieee802154_hw *hw,
