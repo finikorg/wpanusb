@@ -274,7 +274,7 @@ static int wpanusb_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 			     skb->len, wpanusb_xmit_complete, NULL);
 	ret = usb_submit_urb(wpanusb->tx_urb, GFP_ATOMIC);
 
-	dev_dbg(&udev->dev, "wpanusb_xmit ret %d len %u seq %u\n", ret,
+	dev_dbg(&udev->dev, "%s: ret %d len %u seq %u\n", __func__, ret,
 		skb->len, wpanusb->tx_ack_seq);
 
 	return ret;
