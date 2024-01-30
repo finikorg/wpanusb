@@ -10,7 +10,7 @@ Building Linux kernel wpanusb driver
 ------------------------------------
 1. Make sure you have Linux kernel headers installed
 
-```shell
+```console
 $ ls /lib/modules/`uname -r`/build
 ```
 
@@ -33,7 +33,7 @@ Loading wpanusb
 You can load driver with insmod given that all dependency are loaded, otherwise use
 provided modprobe.sh script
 
-```shell
+```console
 $ sudo scripts/modprobe.sh
 ```
 
@@ -43,13 +43,13 @@ Configuring 6lowpan address
 ---------------------------
 There is a script helping to configure 6lowpan address
 
-```shell
+```console
 $ sudo scripts/lowpan.sh
 ```
 
 lowpan0 network device should appear and IPv6 address can be checked with
 
-```shell
+```console
 $ ip addr show dev lowpan0
 59: lowpan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1280 qdisc noqueue state UNKNOWN group default qlen 1
     link/[825] 92:05:91:9b:5a:2c:34:41 brd ff:ff:ff:ff:ff:ff:ff:ff
