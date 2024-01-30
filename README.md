@@ -16,8 +16,7 @@ $ ls /lib/modules/`uname -r`/build
 
 2. Type make, below is output for the latest Ubuntu
 
-```bash
-
+```console
 $ make
 make -C /lib/modules/`uname -r`/build M=$PWD
 make[1]: Entering directory '/usr/src/linux-headers-4.4.0-38-generic'
@@ -26,7 +25,7 @@ make[1]: Entering directory '/usr/src/linux-headers-4.4.0-38-generic'
   MODPOST 1 modules
   CC      /usr/local/src/ieee802154/wpanusb/wpanusb.mod.o
   LD [M]  /usr/local/src/ieee802154/wpanusb/wpanusb.ko
-  make[1]: Leaving directory '/usr/src/linux-headers-4.4.0-38-generic'
+make[1]: Leaving directory '/usr/src/linux-headers-4.4.0-38-generic'
 ```
 
 Loading wpanusb
