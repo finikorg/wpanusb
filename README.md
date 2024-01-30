@@ -1,10 +1,15 @@
-QUICK HOWTO
-===========
+WPANUSB
+=======
+Linux kernel driver for wpanusb 802.15.4 USB dongle.
 
 Prerequisites
 -------------
-QuarkSE devboard is connected to Linux PC with 2 USB cables and flashed
-with wpanusb application.
+- a hardware board with 802.15.4 radio and USB controller supported by Zephyr.
+- `wpanusb` application is flashed to the board
+- the board is connected to Linux via USB cable
+
+`wpanusb` Zephyr application is described here:
+https://docs.zephyrproject.org/latest/samples/net/wpanusb/README.html
 
 Building Linux kernel wpanusb driver
 ------------------------------------
