@@ -1,18 +1,12 @@
 WPANUSB
 =======
-Linux kernel driver for wpanusb 802.15.4 USB dongle.
-
-Prerequisites
--------------
-- a hardware board with 802.15.4 radio and USB controller supported by Zephyr.
-- Zephyr `wpanusb` application (firmware) is flashed to the board
-- the board is connected to Linux via USB cable
-
-`wpanusb` Zephyr application is described here:
-https://docs.zephyrproject.org/latest/samples/net/wpanusb/README.html
 
 Overview
 --------
+
+wpanusb is a Linux kernel driver for wpanusb 802.15.4 USB dongle.
+The big picture is shown below:
+
 ```mermaid
 graph TB
     subgraph Linux
@@ -30,13 +24,27 @@ graph TB
 
     end
 
-    Linux-->Zephyr
+    Linux-->|USB| Zephyr
 ```
+
+Please note that there are 2 wpanusb in the picture:
+- Linux kernel driver (driver) which is described here
+- Zephyr application (firmware) which is described in
+  [Zephyr samples/net/wpanusb](https://docs.zephyrproject.org/latest/samples/net/wpanusb/README.html)
+
 For more information please see my presentation at Embedded Linux Conference Europe, 2019.
-[Writing Your Own Gadget](https://static.sched.com/hosted_files/osseu19/6a/WYOG-eng-v15.pdf)
+[Writing Your Own Gadget](https://static.sched.com/hosted_files/osseu19/6a/WYOG-eng-v15.pdf).
+
+Prerequisites
+-------------
+
+- a hardware board with 802.15.4 radio and USB controller supported by Zephyr.
+- Zephyr `wpanusb` application (firmware) is flashed to the board
+- the board is connected to Linux via USB cable
 
 Building Linux kernel wpanusb driver
 ------------------------------------
+
 1. Make sure you have Linux kernel headers installed
 
 ```console
@@ -59,6 +67,7 @@ make[1]: Leaving directory '/usr/src/linux-headers-4.4.0-38-generic'
 
 Loading wpanusb
 ---------------
+
 You can load driver with insmod given that all dependency are loaded, otherwise use
 provided modprobe.sh script
 
@@ -70,6 +79,7 @@ wpan0 device should appear in the network devices list
 
 Configuring 6lowpan address
 ---------------------------
+
 There is a script helping to configure 6lowpan address
 
 ```console
