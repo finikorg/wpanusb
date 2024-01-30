@@ -5,11 +5,35 @@ Linux kernel driver for wpanusb 802.15.4 USB dongle.
 Prerequisites
 -------------
 - a hardware board with 802.15.4 radio and USB controller supported by Zephyr.
-- `wpanusb` application is flashed to the board
+- Zephyr `wpanusb` application (firmware) is flashed to the board
 - the board is connected to Linux via USB cable
 
 `wpanusb` Zephyr application is described here:
 https://docs.zephyrproject.org/latest/samples/net/wpanusb/README.html
+
+Overview
+--------
+```mermaid
+graph TB
+    subgraph Linux
+        direction TB
+        Applications-->IPv6
+        IPv6-->6LoWPAN
+        6LoWPAN-->lmac[802.15.4 MAC]
+        lmac-->driver[wpanusb driver]
+    end
+
+    subgraph Zephyr
+        direction TB
+        app[Zephyr wpanusb]-->zmac[802.15.4 driver]
+        zmac-->radio[802.15.4 radio]
+
+    end
+
+    Linux-->Zephyr
+```
+For more information please see my presentation at Embedded Linux Conference Europe, 2019.
+[Writing Your Own Gadget](https://static.sched.com/hosted_files/osseu19/6a/WYOG-eng-v15.pdf)
 
 Building Linux kernel wpanusb driver
 ------------------------------------
