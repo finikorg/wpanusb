@@ -4,7 +4,7 @@ WPANUSB
 Overview
 --------
 
-wpanusb is a Linux kernel driver for wpanusb 802.15.4 USB dongle.
+`wpanusb` is a Linux kernel driver for 802.15.4 USB dongle.
 The big picture is shown below:
 
 ```mermaid
@@ -27,7 +27,7 @@ graph TB
     Linux-->|USB| Zephyr
 ```
 
-Please note that there are 2 wpanusb in the picture:
+Please note that there are 2 `wpanusb`s in the picture:
 - Linux kernel driver (driver) which is described here
 - Zephyr application (firmware) which is described in
   [Zephyr samples/net/wpanusb](https://docs.zephyrproject.org/latest/samples/net/wpanusb/README.html)
@@ -96,4 +96,4 @@ $ ip addr show dev lowpan0
        valid_lft forever preferred_lft forever
 ```
 
-There is link local IPv6 address which can be used for ping6.
+There is link local IPv6 address which can be used for `ping6`.
